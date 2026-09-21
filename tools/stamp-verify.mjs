@@ -35,6 +35,7 @@ import {
   parseStampLedger, sealChain, foldBalances, parseLaws, classifyEntry, walkLedger,
   townIssuanceDial,
   keepingDial, potFile, deriveEpochClose, keepingLine, TREASURY_POT,
+  houseCanon, WELCOME_ONE_HOUSE_FROM,
 } from './stamp-mint.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -126,26 +127,13 @@ export function verifyStampLedger(repo, { pubkeyPem } = {}) {
     const oneShotSeen = new Set();      // one-shot issuance purposes already spent
     const firstIdeaHouses = new Set();  // household keys already paid their first-idea mint
     const welcomedHouses = new Set();   // household keys already paid their welcome bundle
-    // ONE HOUSE, TWO SPELLINGS (2026-09-20, cloud-phi). A household declared
-    // through the office door is keyed `hh:<slug>` by the drain's registry line,
-    // while the pin the welcome plan read the same afternoon keyed it
-    // `gh:<id>`. Both name the same house — tools/households.json binds the
-    // account id to the slug — and a day-granular registry made the earlier
-    // welcome read as a stranger's. The line stays true because it was true:
-    // a welcome's key is lawful when it resolves to the recipient's house under
-    // EITHER spelling, and once-per-household counts the house, not the
-    // spelling. Nothing here widens what a lying key can do: a gh: id the
-    // households file does not bind to the handle's declared house still fails.
-    const houseSlugByGhId = (() => {
-      const m = new Map();
-      try {
-        const hhFile = JSON.parse(readFileSync(join(repo, 'tools', 'households.json'), 'utf8'));
-        for (const [slug, rec] of Object.entries(hhFile?.households ?? {}))
-          for (const a of rec?.accounts ?? []) if (a && a.id != null) m.set(`gh:${a.id}`, `hh:${slug}`);
-      } catch { /* no declared households: every key is its own spelling */ }
-      return m;
-    })();
-    const canonHouse = (key) => houseSlugByGhId.get(key) ?? key;
+    // ONE HOUSE, TWO SPELLINGS — the resolver is stamp-mint's (houseCanon), read
+    // here and by the welcome plan; see its header there. `welcomedHouses`
+    // counts HOUSES from WELCOME_ONE_HOUSE_FROM (Keemin 2026-09-20: the welcome
+    // is per household) and SPELLINGS before it, so the append-only record is
+    // never re-judged.
+    const canonHouse = houseCanon(repo);
+    const welcomedSpellings = new Set(); // the keys as the lines named them (the law before the date)
     const issuanceDial = townIssuanceDial(repo);
     let warnedNoIssuanceDial = false;
     const isMeep = meepChecker(laws);
@@ -399,14 +387,13 @@ export function verifyStampLedger(repo, { pubkeyPem } = {}) {
         if (canonHouse(cls.household) !== canonHouse(houseKey)) {
           problems.push(`line ${lineNo}: LAWFUL fails — welcome names household "${cls.household}" but "${cls.handle}" is ${houseKey} at ${cls.date}`); break;
         }
-        // The once-ever set still counts SPELLINGS here, as it always has: making
-        // it count houses re-judges history (line 12103, noe's house, holds a
-        // bundle under each spelling already) and that is the class fix, ruled
-        // separately — a hotfix unblocks the instance and moves nothing else.
-        if (welcomedHouses.has(houseKey)) {
+        const houseCanonKey = canonHouse(houseKey);
+        const twice = cls.date >= WELCOME_ONE_HOUSE_FROM ? welcomedHouses.has(houseCanonKey) : welcomedSpellings.has(houseKey);
+        if (twice) {
           problems.push(`line ${lineNo}: LAWFUL fails — household of "${cls.handle}" already holds its welcome bundle (once per household, ever)`); break;
         }
-        welcomedHouses.add(houseKey);
+        welcomedSpellings.add(houseKey);
+        welcomedHouses.add(houseCanonKey);
       }
 
       if (cls.kind === 'town-issuance') {

@@ -279,6 +279,38 @@ export function currentHouseholds(repo) {
   return map;
 }
 
+// ── ONE HOUSE, TWO SPELLINGS (2026-09-20/21) ─────────────────────────────────
+//
+// A household is spelled four ways on the record: `gh:<github-id>` (the pin),
+// `login:<github-login>` (the ADDRESS fallback), `solo:<handle>` (provisional),
+// and `hh:<slug>` (declared through the office door and re-keyed by the drain).
+// On 2026-09-20 the welcome pass keyed cloud-phi's bundle by the pin and the
+// drain re-keyed the same handle to its declared house the same town day; the
+// verifier compared the two as strings and called a lawful line a stranger's.
+//
+// This is the resolver, and it is the ONLY one: `tools/households.json` binds
+// each declared house's account ids to its slug, so a gh: key resolves to the
+// hh: house that owns it and every other spelling stays itself. The verifier
+// and the welcome plan both read it here; neither keeps a private copy.
+//
+// Keemin's ruling of 2026-09-20 evening: the welcome is PER HOUSEHOLD — one
+// bundle for a house however many accounts live in it. The rule counts houses
+// from WELCOME_ONE_HOUSE_FROM and spellings before it, because the ledger is
+// append-only and the Carried Weight (two accounts, two bundles, 09-14) was
+// lawful when written and stays so. The full key, the slug as a house's one
+// primary key with accounts as attributes, is the founder's proposal on the
+// record and is not this change.
+export const WELCOME_ONE_HOUSE_FROM = '2026-09-21';
+export function houseCanon(repo) {
+  const m = new Map();
+  try {
+    const hhFile = JSON.parse(readFileSync(join(repo, 'tools', 'households.json'), 'utf8'));
+    for (const [slug, rec] of Object.entries(hhFile?.households ?? {}))
+      for (const a of rec?.accounts ?? []) if (a && a.id != null) m.set(`gh:${a.id}`, `hh:${slug}`);
+  } catch { /* no declared households: every key is its own spelling */ }
+  return (key) => m.get(key) ?? key;
+}
+
 // ── ledger line classification (laws, revisions, mints, stakes) ─────────────
 
 // The optional ` · friendship: <ladder>` segment (stamps-v3) sits at the tail,
@@ -2078,19 +2110,24 @@ function main() {
     // A welcome already paid marks BOTH the key the line named and the key its
     // recipient wears today: a household that re-keyed after its bundle must not
     // read as unpaid under its new name.
-    const paid = new Map(); // household key -> the line that paid it
+    // …and under the HOUSE both keys resolve to (houseCanon): a bundle paid
+    // under gh:<id> marks the declared hh:<slug> house paid, and the roll groups
+    // a house's residents together whichever spelling each one wears.
+    const canon = houseCanon(repo);
+    const paid = new Map(); // household key (canonical) -> the line that paid it
     for (const e of existing) {
       const c = classifyEntry(e.canonical);
       if (c.kind !== 'welcome') continue;
-      paid.set(c.household, c);
+      paid.set(canon(c.household), c);
       const now = roll.get(c.handle);
-      if (now) paid.set(now.key, c);
+      if (now) paid.set(canon(now.key), c);
     }
-    const byHouse = new Map(); // key -> [handle]
+    const byHouse = new Map(); // canonical key -> [handle]
     for (const [handle, rec] of roll) {
       if (isMeep(handle, today)) continue;  // meeps stay outside the currency
-      if (!byHouse.has(rec.key)) byHouse.set(rec.key, []);
-      byHouse.get(rec.key).push(handle);
+      const key = canon(rec.key);
+      if (!byHouse.has(key)) byHouse.set(key, []);
+      byHouse.get(key).push(handle);
     }
     const owed = [], held = [];
     for (const key of [...byHouse.keys()].sort()) {

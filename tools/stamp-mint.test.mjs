@@ -523,6 +523,49 @@ test('ONE HOUSE, TWO SPELLINGS is not a hole: a gh: id the households file does 
   assert.ok(v.problems.some((p) => /welcome names household "gh:8" but "cloud" is hh:anchorage/.test(p)), v.problems.join('\n'));
 });
 
+test('WELCOME PER HOUSEHOLD (Keemin 2026-09-20): from the law date, a second bundle for one house under its other spelling fails', () => {
+  const { pub, priv } = keypair();
+  const repo = town({ ledgerLines: [], pins: { cloud: { id: 7 }, volt: { id: 7 } }, addresses: { cloud: null, volt: null } });
+  writeFileSync(join(repo, 'tools', 'households.json'), JSON.stringify({ schema_version: 1, households: {
+    anchorage: { name: 'anchorage', accounts: [{ login: 'stardust', id: 7 }], residents: ['cloud', 'volt'] } } }));
+  forged(repo, pub, priv, [
+    '- 2026-09-21 · MINT → cloud · 5 · for: welcome:gh:7 · by: the-town',
+    '- 2026-09-21 · registry: cloud = hh:anchorage',
+    '- 2026-09-21 · registry: volt = hh:anchorage',
+    '- 2026-09-22 · MINT → volt · 5 · for: welcome:hh:anchorage · by: the-town',
+  ]);
+  const v = verifyStampLedger(repo, { pubkeyPem: pub });
+  assert.equal(v.ok, false);
+  assert.ok(v.problems.some((p) => /volt.*already holds its welcome bundle/.test(p)), v.problems.join('\n'));
+});
+
+test('WELCOME PER HOUSEHOLD does not re-judge history: two bundles for one house dated before the law date stand (the Carried Weight, 09-14)', () => {
+  const { pub, priv } = keypair();
+  const repo = town({ ledgerLines: [], pins: { liv: { id: 1 }, noe: { id: 2 } }, addresses: { liv: null, noe: null } });
+  writeFileSync(join(repo, 'tools', 'households.json'), JSON.stringify({ schema_version: 1, households: {
+    'the-carried-weight': { name: 'the Carried Weight', accounts: [{ login: 'Liv', id: 1 }, { login: 'Noe', id: 2 }], residents: ['liv', 'noe'] } } }));
+  forged(repo, pub, priv, [
+    '- 2026-09-14 · MINT → liv · 5 · for: welcome:gh:1 · by: the-town',
+    '- 2026-09-14 · MINT → noe · 5 · for: welcome:gh:2 · by: the-town',
+  ]);
+  const v = verifyStampLedger(repo, { pubkeyPem: pub });
+  assert.equal(v.ok, true, v.problems.join('\n'));
+});
+
+test('THE WELCOME PLAN counts houses: a declared house paid under its gh: spelling is not owed again under hh:', () => {
+  const { pub, priv } = keypair();
+  const repo = town({ ledgerLines: [], pins: { cloud: { id: 7 }, volt: { id: 7 } }, addresses: { cloud: null, volt: null } });
+  writeFileSync(join(repo, 'tools', 'households.json'), JSON.stringify({ schema_version: 1, households: {
+    anchorage: { name: 'anchorage', accounts: [{ login: 'stardust', id: 7 }], residents: ['cloud', 'volt'] } } }));
+  forged(repo, pub, priv, [
+    '- 2026-09-21 · MINT → cloud · 5 · for: welcome:gh:7 · by: the-town',
+    '- 2026-09-21 · registry: cloud = hh:anchorage',
+  ]);
+  const plan = runMint(repo, ['--welcome-plan', '--date', '2026-09-22']);
+  assert.equal(plan.ok, true, plan.out);
+  assert.match(plan.out, /1 household\(s\) in the roll, 1 already welcomed, 0 owed/, plan.out);
+});
+
 test('FORGED KEY: a welcome naming a house its recipient does not live in fails LAWFUL', () => {
   const { pub, priv } = keypair();
   const repo = town({ ledgerLines: [], pins: { alice: { id: 1 }, carol: { id: 2 } }, addresses: { alice: null, carol: null } });
